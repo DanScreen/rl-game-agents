@@ -62,6 +62,10 @@ rlg train configs/chess_td.yaml
 # override any config value on the command line (dots for nested keys)
 rlg train configs/space_invaders_ppo.yaml total_steps=10000000 num_envs=16 algo.lr=3e-4 --name si_ppo_big
 
+# continue training from any checkpoint (fine-tune, extend a run, or chess stage 2)
+rlg train configs/space_invaders_ppo.yaml init_from=pretrained/space_invaders_ppo.pt total_steps=5000000
+rlg train configs/chess_td_stage2.yaml init_from=runs/chess_td-<timestamp>/best.pt
+
 # or start several in the background
 ./scripts/train_all.sh                              # all five
 ./scripts/train_all.sh cartpole_ppo chess_td        # a subset
@@ -90,6 +94,10 @@ rlg chess-bench pretrained/chess_td.pt --opponents random greedy minimax2 --game
 rlg chess-bench pretrained/chess_td.pt --depth 2 --save-games videos/   # 2-ply search + HTML replays
 
 rlg leaderboard                                     # print the leaderboard
+
+# learning curves of one or more runs -> PNG
+rlg plot runs/space_invaders_dqn-*/ runs/space_invaders_ppo-*/ --out videos/si_curves.png
+rlg plot runs/chess_td-*/ -m eval/score_vs_random -m eval/score_vs_greedy -m eval/score_vs_minimax2
 ```
 
 Results are appended to `benchmarks/results.jsonl`, and
@@ -132,7 +140,10 @@ tradition of TD-Gammon, KnightCap and Giraffe:
 3. **Encoding.** Positions are always shown from the mover's point of view (the board is
    mirrored when black is to move), as 12 piece-occupancy planes plus castling rights.
 
-At play time the same network can search 2 plies (`--depth 2`), which is noticeably stronger.
+At play time the same network can search deeper: `--depth 2` (full-width, one batched network
+call per move) or `--depth 3`+ (alpha-beta with the network at the leaves, ~0.2 s/move at
+depth 3). Deeper search is noticeably stronger. `configs/chess_td_stage2.yaml` continues
+training a stage-1 network against tougher opponents, including the 2-ply minimax baseline.
 
 ## Project layout
 
@@ -146,6 +157,7 @@ src/rlgames/
   evaluate.py            episode runner used by training-time eval and `rlg bench`
   record.py              video recording / live viewing
   benchmark.py           results store + leaderboard generation
+  plot.py                learning-curve plots
 pretrained/              checkpoints from the first training runs
 benchmarks/              results.jsonl + generated LEADERBOARD.md
 scripts/train_all.sh     launch several runs in the background
