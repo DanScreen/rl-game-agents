@@ -26,5 +26,5 @@ algo:
   clip_rewards: true
 eval:
   interval: 100000
-  episodes: 5
+  episodes: 10            # 5 proved too noisy to pick best.pt reliably
   epsilon: 0.01

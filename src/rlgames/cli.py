@@ -61,7 +61,8 @@ def cmd_watch(args: argparse.Namespace) -> None:
         play_human(policy, env, args.episodes, args.seed, policy.env_kwargs)
         return
     out = Path(args.out or f"videos/{env.replace('/', '_')}-{policy.name.replace('/', '_')}.mp4")
-    scores = record_episodes(policy, env, out, args.episodes, args.seed, policy.env_kwargs, fps=args.fps)
+    scores = record_episodes(policy, env, out, args.episodes, args.seed, policy.env_kwargs, fps=args.fps,
+                             max_steps=args.max_steps)
     print(f"Scores: {scores}")
     print(f"Saved video: {out}")
 
@@ -213,6 +214,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--episodes", type=int, default=1)
     s.add_argument("--out", help="output .mp4 or .gif (default: videos/<env>-<agent>.mp4)")
     s.add_argument("--fps", type=int)
+    s.add_argument("--max-steps", type=int, default=20_000, help="cut each episode after this many steps")
     s.add_argument("--epsilon", type=float, help="DQN exploration during play (default from checkpoint)")
     s.add_argument("--human", action="store_true", help="open a live window instead of recording")
     s.add_argument("--seed", type=int, default=0)
