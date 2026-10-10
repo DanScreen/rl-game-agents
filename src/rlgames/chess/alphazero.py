@@ -55,6 +55,10 @@ DEFAULTS: dict[str, Any] = {
     "train_steps_per_iter": 100,
     "games_per_iter": 32,
     "min_buffer": 2_000,
+    # Start-position diversity (still pure self-play: nothing about piece values is given).
+    "opening_random_plies": [0, 0],  # random moves played before self-play starts, [min, max]
+    "curriculum_frac": 0.0,  # fraction of games starting with a random subset of pieces removed
+    "curriculum_keep": [0.2, 0.7],  # fraction of non-king pieces kept in those games, [min, max]
 }
 
 
@@ -88,10 +92,34 @@ class SelfPlayBuffer:
 
 
 class SelfPlayGame:
-    def __init__(self) -> None:
-        self.board = chess.Board()
+    def __init__(self, board: chess.Board | None = None) -> None:
+        self.board = board or chess.Board()
         self.root = Node()
         self.history: list[tuple[np.ndarray, np.ndarray, np.ndarray, chess.Color]] = []
+
+
+def start_position(rng: np.random.Generator, hp: dict[str, Any]) -> chess.Board:
+    """The standard start, optionally after some random moves, or (curriculum) the start
+    position with a random subset of non-king pieces removed. Removing material puts
+    checkmates within reach of a weak search, so decisive results (and value signal) keep
+    coming instead of self-play collapsing into repetition draws."""
+    for _ in range(100):
+        board = chess.Board()
+        if rng.random() < hp["curriculum_frac"]:
+            keep = rng.uniform(*hp["curriculum_keep"])
+            for square, piece in list(board.piece_map().items()):
+                if piece.piece_type != chess.KING and rng.random() > keep:
+                    board.remove_piece_at(square)
+            board.castling_rights = board.clean_castling_rights()
+        lo, hi = hp["opening_random_plies"]
+        for _ in range(int(rng.integers(lo, hi + 1))):
+            moves = list(board.legal_moves)
+            if not moves:
+                break
+            board.push(moves[int(rng.integers(len(moves)))])
+        if board.is_valid() and not board.is_game_over(claim_draw=True):
+            return board
+    return chess.Board()
 
 
 def game_result(board: chess.Board, hp: dict[str, Any]) -> tuple[float, str]:
@@ -155,7 +183,7 @@ def train(cfg: dict[str, Any], run_dir: Path) -> dict[str, Any]:
     history, results, plies, endings, losses = [], [], [], [], []
     t_start = time.time()
     selfplay_time = train_time = 0.0
-    slots = [SelfPlayGame() for _ in range(int(hp["parallel_games"]))]
+    slots = [SelfPlayGame(start_position(rng, hp)) for _ in range(int(hp["parallel_games"]))]
     games_started = len(slots)
 
     while games_done < total_games:
@@ -169,7 +197,7 @@ def train(cfg: dict[str, Any], run_dir: Path) -> dict[str, Any]:
                 continue
             root = g.root
             visits = root.N
-            if g.board.ply() < hp["temperature_plies"]:
+            if len(g.history) < hp["temperature_plies"]:  # plies played in this game
                 a = int(rng.choice(len(visits), p=visits / visits.sum()))
             else:
                 a = int(np.argmax(visits))
@@ -180,7 +208,7 @@ def train(cfg: dict[str, Any], run_dir: Path) -> dict[str, Any]:
             if g.root.expanded:
                 add_noise(g.root)
 
-            over = g.board.is_game_over(claim_draw=True) or g.board.ply() >= hp["max_plies"]
+            over = g.board.is_game_over(claim_draw=True) or len(g.history) >= hp["max_plies"]
             if over:
                 z_white, how = game_result(g.board, hp)
                 for planes, actions, probs, turn in g.history:
@@ -190,7 +218,7 @@ def train(cfg: dict[str, Any], run_dir: Path) -> dict[str, Any]:
                 endings.append(how)
                 games_done += 1
                 if games_started < total_games:
-                    slots[k] = SelfPlayGame()
+                    slots[k] = SelfPlayGame(start_position(rng, hp))
                     games_started += 1
                 else:
                     slots[k] = None

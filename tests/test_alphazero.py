@@ -120,3 +120,16 @@ def test_fit_elo_orders_players():
 
     r = fit_elo(["a", "b", "random"], score)
     assert r[2] == 0 and r[0] > r[1] > r[2]
+
+
+def test_curriculum_start_positions_are_legal_and_reduced():
+    from rlgames.chess.alphazero import DEFAULTS, start_position
+
+    rng = np.random.default_rng(0)
+    hp = {**DEFAULTS, "curriculum_frac": 1.0, "curriculum_keep": [0.2, 0.5], "opening_random_plies": [0, 4]}
+    for _ in range(50):
+        board = start_position(rng, hp)
+        assert board.is_valid() and not board.is_game_over(claim_draw=True)
+        assert len(board.piece_map()) < 32 and board.king(chess.WHITE) is not None and board.king(chess.BLACK) is not None
+    plain = start_position(rng, DEFAULTS)
+    assert plain.fen() == chess.STARTING_FEN
