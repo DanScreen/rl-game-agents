@@ -78,7 +78,20 @@ def test_chess_td_train_and_bench(tmp_path):
     assert (tmp_path / "g.html").exists() and (tmp_path / "g.gif").exists()
 
 
+@pytest.mark.parametrize("model", ["{arch: resnet, blocks: 1, channels: 8}", "{arch: transformer, layers: 1, dim: 16, heads: 2}"])
+def test_chess_alphazero_train_and_tournament(tmp_path, model):
+    run_dir = _train(tmp_path, "chess_az.yaml", f"model={model}", "total_games=4", "algo.parallel_games=4",
+                     "algo.simulations=4", "algo.max_plies=16", "algo.min_buffer=8", "algo.batch_size=16",
+                     "algo.games_per_iter=2", "algo.train_steps_per_iter=2", "eval.games=2", "eval.simulations=4",
+                     "eval.opponents=[random]", "eval.max_plies=16", "eval.interval_games=4")
+    assert (run_dir / "best.pt").exists() and (run_dir / "summary.json").exists()
+    out = tmp_path / "t.md"
+    main(["chess-tournament", str(run_dir), "random", "--games", "2", "--sims", "4", "--max-plies", "12",
+          "--no-record", "--out", str(out)])
+    assert "random" in out.read_text()
+
+
 def test_configs_load():
     for path in CONFIGS.glob("*.yaml"):
         cfg = load_config(path)
-        assert cfg["algo"]["name"] in ("dqn", "ppo", "chess_td"), path
+        assert cfg["algo"]["name"] in ("dqn", "ppo", "chess_td", "chess_az"), path

@@ -7,7 +7,7 @@ three games of increasing difficulty:
 |---|---|---|---|
 | **CartPole** | the "very simple game": balance a pole; trains in under a minute, ideal for checking things work | DQN, PPO | 4 numbers |
 | **Space Invaders** (Atari 2600) | classic deep-RL benchmark from the DQN paper | DQN (Double + Dueling), PPO | raw pixels (4 stacked 84x84 frames) |
-| **Chess** | two-player, huge state space, sparse reward | TD(λ) self-play value network + search | board encoding |
+| **Chess** | two-player, huge state space, sparse reward | AlphaZero (MCTS + policy/value net, pure self-play; MLP / CNN / ResNet / Transformer), TD(λ) value net + search | board planes |
 
 Everything runs from one command-line tool, `rlg`, which can **train**, **watch** (record
 videos / HTML replays), **benchmark** (leaderboard against baselines) and **play** against
@@ -171,6 +171,59 @@ At play time the same network can search deeper: `--depth 2` (full-width, one ba
 call per move) or `--depth 3`+ (alpha-beta with the network at the leaves, ~0.2 s/move at
 depth 3). Deeper search is noticeably stronger. `configs/chess_td_stage2.yaml` continues
 training a stage-1 network against tougher opponents, including the 2-ply minimax baseline.
+`configs/chess_td_selfplay.yaml` is the pure version: self-play only, unfinished games scored
+as draws.
+
+### Chess: AlphaZero-style self-play with interchangeable networks
+
+[`src/rlgames/chess/alphazero.py`](src/rlgames/chess/alphazero.py) learns **only from games
+against itself**: no baseline opponents, no material hints (unfinished games count as draws).
+
+1. **Search.** Moves are chosen by Monte Carlo Tree Search
+   ([`mcts.py`](src/rlgames/chess/mcts.py)) guided by a network that outputs a *policy*
+   (which moves look promising) and a *value* (who is winning). The search explores
+   promising lines deeply, starting each move with Dirichlet noise at the root for exploration.
+   Many games search in lock-step so one network call evaluates a position from each of them.
+2. **Learn.** For every position the network is trained to predict the search's visit counts
+   (policy target, cross-entropy) and the final result (value target, MSE). Search makes the
+   policy better than the raw network, and the network learns from that improved policy:
+   that loop is what lets self-play improve without outside knowledge.
+3. **Encoding** ([`az_encoding.py`](src/rlgames/chess/az_encoding.py)): 20 planes of 8x8
+   from the mover's point of view (pieces, repetition, castling, en passant, fifty-move counter);
+   4,168 move outputs (from-square x to-square plus under-promotions).
+
+**Architectures** ([`nets.py`](src/rlgames/chess/nets.py)) all share the same input/output,
+so they run through the identical training loop:
+
+| `model.arch` | What it is |
+|---|---|
+| `mlp` | flattened board, fully connected layers (no notion of space) |
+| `cnn` | stack of 3x3 convolutions |
+| `resnet` | AlphaZero's residual tower (optional squeeze-and-excitation: `se: true`) |
+| `transformer` | each square is a token; self-attention between squares; Leela-style attention policy |
+
+```bash
+rlg train configs/chess_az.yaml                                          # ResNet by default
+rlg train configs/chess_az.yaml "model={arch: transformer, layers: 6, dim: 128}" --name az_tf
+./scripts/compare_chess_archs.sh total_games=2000   # all four, same procedure, then a tournament
+rlg chess-tournament runs/az_*/best.pt random greedy minimax2 --games 10 --sims 100 --out t.md
+rlg chess-play runs/az_tf-*/ --sims 400                                  # play it yourself
+```
+
+`summary.json` in each run records parameter count, wall-clock, self-play vs training time
+and the evaluation history, so architectures can be compared on strength *and* cost.
+To add an architecture, write an `nn.Module` mapping `(B, 20, 8, 8)` to
+`(logits (B, 4168), value (B,))` and register it in `ARCHITECTURES`.
+
+**Why MCTS rather than minimax here?** Both are game-tree searches. Alpha-beta minimax
+(what `MinimaxAgent` and the TD agent's `--depth 3` use) is the classical approach and,
+paired with a fast evaluation network (NNUE), still powers Stockfish, the strongest engine.
+But alpha-beta needs good move ordering and lots of hand-tuned pruning, and only its value
+estimates can be learned. AlphaZero's MCTS instead uses a learned *policy* to decide what
+to search, and its visit counts give a training target for that policy, so search and
+network improve each other from self-play alone. Leela Chess Zero, built this way, plays
+at the same top level. For learning from scratch, MCTS is the natural fit; minimax stays
+here as a baseline opponent.
 
 ## Project layout
 
@@ -180,7 +233,8 @@ src/rlgames/
   cli.py                 the `rlg` command
   envs/                  environment factory + Atari preprocessing
   agents/                networks, DQN, PPO, checkpoint/policy loading
-  chess/                 encoding, value net, TD training, baselines, arena, HTML/GIF rendering
+  chess/                 TD learner (encoding, model, td) and AlphaZero learner (az_encoding,
+                         nets, mcts, alphazero); baselines, arena, tournament, HTML/GIF rendering
   evaluate.py            episode runner used by training-time eval and `rlg bench`
   record.py              video recording / live viewing
   benchmark.py           results store + leaderboard generation
@@ -199,8 +253,9 @@ Atari preprocessing automatically. Short aliases live in `src/rlgames/envs/__ini
 
 ## Ideas for next steps
 
-* **Chess:** AlphaZero-style MCTS with a policy + value network; Stockfish benchmarks; more
-  self-play compute; a residual CNN over 8x8 planes.
+* **Chess:** much more self-play compute for the AlphaZero learner (a GPU and parallel
+  self-play workers), Stockfish benchmarks, playout-cap randomisation and other KataGo/Leela
+  tricks for faster learning.
 * **Atari:** longer runs on a GPU (10M+ steps), Rainbow components (prioritised replay,
   n-step returns, distributional RL), more games (Breakout and Pong are ready to go).
 * **Tooling:** hyperparameter sweeps, multi-seed benchmarking with confidence intervals.
