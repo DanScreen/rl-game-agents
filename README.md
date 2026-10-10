@@ -13,7 +13,34 @@ Everything runs from one command-line tool, `rlg`, which can **train**, **watch*
 videos / HTML replays), **benchmark** (leaderboard against baselines) and **play** against
 the chess agent.
 
-<!-- RESULTS -->
+## Results so far
+
+All trained from scratch overnight on a 4-core CPU. Checkpoints are in [`pretrained/`](pretrained/);
+full tables in [`benchmarks/LEADERBOARD.md`](benchmarks/LEADERBOARD.md).
+
+| Game | Agent | Score | Baseline |
+|---|---|---|---|
+| CartPole | PPO / DQN | **500** (the maximum) on all 30 episodes | random: 19.5 |
+| Space Invaders | PPO, 5M steps | **543** mean over 50 games | random: 142 |
+| Space Invaders | DQN, 1M steps | **426** mean over 50 games | random: 142 |
+| Chess | TD(λ) value net, 2-ply search | **99%** vs greedy, **50%** vs minimax-2 | (1-ply search: 86% / 7.5%) |
+
+<p>
+<img src="docs/media/space_invaders_ppo.gif" height="300" alt="PPO playing Space Invaders">
+<img src="docs/media/chess_vs_greedy.gif" height="300" alt="The chess agent (white) mating the greedy baseline">
+<img src="docs/media/cartpole_ppo.gif" height="200" alt="PPO balancing CartPole">
+</p>
+
+Learning curves: [Space Invaders](docs/media/space_invaders_curves.png) ·
+[CartPole](docs/media/cartpole_curves.png) · [Chess](docs/media/chess_curves.png).
+Sample chess games (download and open in a browser):
+[vs greedy](docs/media/chess_td_vs_greedy.html) · [vs minimax-2](docs/media/chess_td_vs_minimax2.html).
+
+These are early, CPU-budget results. The DQN paper reports ~1,976 on Space Invaders after
+50M frames (12.5M agent steps; our "steps" are agent steps of 4 frames each). Longer runs here
+should keep improving: both curves were still rising.
+The chess agent plays legal, purposeful chess and reliably mates weak opponents, but is far
+from strong: it matches a 2-ply material search, nothing more.
 
 ## Quick start
 
@@ -43,11 +70,11 @@ rlg watch random --env space_invaders               # for comparison
 rlg watch pretrained/space_invaders_dqn.pt --human
 
 # chess: writes an HTML replay viewer (open it in a browser) and a GIF
-rlg chess-watch pretrained/chess_td.pt greedy --gif
+rlg chess-watch pretrained/chess_td.pt greedy --depth 2 --gif
 rlg chess-watch pretrained/chess_td.pt pretrained/chess_td.pt --games 3   # self-play
 
 # play chess against it yourself in the terminal
-rlg chess-play pretrained/chess_td.pt --color white
+rlg chess-play pretrained/chess_td.pt --color white   # searches 2 plies by default
 ```
 
 ### 2. Launch training runs

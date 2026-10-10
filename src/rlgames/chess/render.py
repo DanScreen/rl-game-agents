@@ -35,7 +35,11 @@ def _positions(record: GameRecord) -> tuple[list[chess.Board], list[str]]:
 
 
 def write_html(records: list[GameRecord], out_path: str | Path, title: str = "Chess games") -> Path:
-    """A page with every game: step through moves with buttons / arrow keys, or autoplay."""
+    """A page with every game: step through moves with buttons / arrow keys, or autoplay.
+
+    Positions are stored compactly (64-character boards) and drawn in the browser with
+    the 12 python-chess piece SVGs embedded once, so even long matches stay small.
+    """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     games = []
@@ -43,14 +47,17 @@ def write_html(records: list[GameRecord], out_path: str | Path, title: str = "Ch
         boards, sans = _positions(rec)
         frames = []
         for i, b in enumerate(boards):
-            lastmove = b.peek() if i > 0 else None
+            squares = "".join(b.piece_at(sq).symbol() if b.piece_at(sq) else "." for sq in chess.SQUARES)
+            last = [b.peek().from_square, b.peek().to_square] if i > 0 else None
             check = b.king(b.turn) if b.is_check() else None
-            frames.append(chess.svg.board(b, size=420, lastmove=lastmove, check=check))
+            frames.append([squares, last, check])
         games.append({
             "title": f"{rec.white} (white) vs {rec.black} (black): {rec.result} - {rec.reason}",
             "frames": frames, "sans": sans, "pgn": rec.pgn(),
         })
-    page = _HTML_TEMPLATE.replace("__TITLE__", html.escape(title)).replace("__GAMES__", json.dumps(games))
+    pieces = {sym: chess.svg.piece(chess.Piece.from_symbol(sym), size=50) for sym in _GLYPHS}
+    page = (_HTML_TEMPLATE.replace("__TITLE__", html.escape(title))
+            .replace("__PIECES__", json.dumps(pieces)).replace("__GAMES__", json.dumps(games)))
     out_path.write_text(page)
     return out_path
 
@@ -114,11 +121,15 @@ _HTML_TEMPLATE = """<!doctype html>
 <style>
  body { font-family: system-ui, sans-serif; background: #f4f4f4; margin: 16px; }
  .game { background: white; padding: 12px; margin-bottom: 16px; border-radius: 8px; display: inline-block; }
+ #board { display: grid; grid-template-columns: repeat(8, 50px); grid-template-rows: repeat(8, 50px);
+          border: 2px solid #333; width: 400px; margin: 6px 0; }
+ #board div { width: 50px; height: 50px; }
+ #board div svg { width: 50px; height: 50px; display: block; }
  .controls button { margin-right: 4px; }
  .moves { max-width: 420px; font-family: monospace; font-size: 13px; line-height: 1.6; }
  .moves span { cursor: pointer; padding: 0 2px; }
  .moves span.cur { background: #ffd54f; }
- select { margin-bottom: 12px; }
+ select { margin-bottom: 12px; max-width: 100%; }
 </style></head><body>
 <h2>__TITLE__</h2>
 <select id="pick"></select>
@@ -135,9 +146,15 @@ _HTML_TEMPLATE = """<!doctype html>
  <details><summary>PGN</summary><pre id="pgn"></pre></details>
 </div>
 <script>
+const PIECES = __PIECES__;
 const games = __GAMES__;
 let g = 0, cur = 0, timer = null;
 const pick = document.getElementById('pick');
+const boardEl = document.getElementById('board');
+const cells = [];
+for (let row = 0; row < 8; row++) for (let col = 0; col < 8; col++) {   // row 0 = rank 8
+  const d = document.createElement('div'); d.dataset.sq = (7 - row) * 8 + col; boardEl.appendChild(d); cells.push(d);
+}
 games.forEach((x, i) => { const o = document.createElement('option'); o.value = i; o.textContent = (i + 1) + ': ' + x.title; pick.appendChild(o); });
 pick.onchange = () => load(+pick.value);
 function load(i) {
@@ -150,9 +167,20 @@ function load(i) {
     sp.textContent = (k % 2 ? ((k + 1) / 2) + '. ' : '') + s; sp.onclick = () => go(k); sp.id = 'm' + k; mv.appendChild(sp); mv.append(' '); });
   go(0);
 }
+function draw([squares, last, check]) {
+  cells.forEach(d => {
+    const sq = +d.dataset.sq, light = ((sq >> 3) + (sq & 7)) % 2 === 1;
+    let bg = light ? '#f0d9b5' : '#b58863';
+    if (last && last.includes(sq)) bg = light ? '#cdd26a' : '#aaa23a';
+    if (sq === check) bg = 'radial-gradient(#ff0000, #e70000 25%, rgba(169,0,0,0) 89%), ' + bg;
+    d.style.background = bg;
+    const p = squares[sq];
+    d.innerHTML = p === '.' ? '' : PIECES[p];
+  });
+}
 function go(k) {
   const n = games[g].frames.length; cur = Math.max(0, Math.min(n - 1, k));
-  document.getElementById('board').innerHTML = games[g].frames[cur];
+  draw(games[g].frames[cur]);
   document.getElementById('ply').textContent = 'ply ' + cur + ' / ' + (n - 1);
   document.querySelectorAll('.moves span').forEach(e => e.classList.toggle('cur', e.id === 'm' + cur));
   if (cur === n - 1) stop();

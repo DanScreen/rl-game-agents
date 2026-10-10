@@ -62,7 +62,7 @@ def write_leaderboard(results_path: Path = RESULTS, leaderboard_path: Path = LEA
                 lines.append(
                     f"| {r['agent']} | {r['episodes']} | {r['mean_return']:.1f} | {r['std_return']:.1f} "
                     f"| {r['median_return']:.1f} | {r['min_return']:.0f} | {r['max_return']:.0f} "
-                    f"| {r.get('train_steps', '-')} | {r['timestamp'][:10]} |"
+                    f"| {r.get('train_steps') or '-'} | {r['timestamp'][:10]} |"
                 )
         lines.append("")
     leaderboard_path.parent.mkdir(parents=True, exist_ok=True)
