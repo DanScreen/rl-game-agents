@@ -29,8 +29,10 @@ def cmd_train(args: argparse.Namespace) -> None:
         from rlgames.agents.ppo import train
     elif algo == "chess_td":
         from rlgames.chess.td import train
+    elif algo == "chess_az":
+        from rlgames.chess.alphazero import train
     else:
-        sys.exit(f"Unknown algo.name {algo!r} in {args.config} (expected dqn, ppo or chess_td)")
+        sys.exit(f"Unknown algo.name {algo!r} in {args.config} (expected dqn, ppo, chess_td or chess_az)")
     summary = train(cfg, run_dir)
     print(json.dumps({k: v for k, v in summary.items() if k != "eval_history"}, indent=2))
     print(f"Done. Checkpoints: {run_dir}/best.pt and {run_dir}/latest.pt")
@@ -88,14 +90,25 @@ def cmd_bench(args: argparse.Namespace) -> None:
 
 
 # ----------------------------------------------------------------------------- chess
-def _chess_agent(spec: str, depth: int, seed: int):
+def _chess_agent(spec: str, depth: int, seed: int, sims: int = 100):
+    """A trained checkpoint (TD value net -> ``depth``-ply search; AlphaZero net -> MCTS with
+    ``sims`` simulations) or a baseline name."""
+    from rlgames.agents.policy import init_checkpoint_path
     from rlgames.chess.agents import ValueNetAgent, make_baseline
-    from rlgames.chess.model import load_value_net
 
     if Path(spec).exists():
-        net, ckpt = load_value_net(spec)
         p = Path(spec)
         label = p.name if p.is_dir() else f"{p.parent.name}/{p.stem}"
+        ckpt = torch.load(init_checkpoint_path(p), map_location="cpu", weights_only=False)
+        if ckpt.get("algo") == "chess_az":
+            from rlgames.chess.alphazero import load_az_net
+            from rlgames.chess.mcts import AlphaZeroAgent
+
+            net, _ = load_az_net(spec)
+            return AlphaZeroAgent(net, simulations=sims, name=f"{label}-s{sims}")
+        from rlgames.chess.model import load_value_net
+
+        net, _ = load_value_net(spec)
         return ValueNetAgent(net, depth=depth, seed=seed, name=f"{label}-d{depth}")
     return make_baseline(spec, seed)
 
@@ -105,9 +118,9 @@ def cmd_chess_bench(args: argparse.Namespace) -> None:
     from rlgames.chess.arena import play_match
     from rlgames.chess.render import write_html
 
-    agent = _chess_agent(args.agent, args.depth, args.seed)
+    agent = _chess_agent(args.agent, args.depth, args.seed, args.sims)
     for opp_spec in args.opponents:
-        opponent = _chess_agent(opp_spec, args.depth, args.seed + 1)
+        opponent = _chess_agent(opp_spec, args.depth, args.seed + 1, args.sims)
 
         def progress(i, rec):
             print(f"  game {i + 1}/{args.games}: {rec.white} vs {rec.black} {rec.result} ({rec.reason}, {rec.board.ply()} plies)", flush=True)
@@ -131,8 +144,8 @@ def cmd_chess_watch(args: argparse.Namespace) -> None:
     from rlgames.chess.arena import play_game
     from rlgames.chess.render import write_gif, write_html
 
-    white = _chess_agent(args.white, args.depth, args.seed)
-    black = _chess_agent(args.black, args.depth, args.seed + 1)
+    white = _chess_agent(args.white, args.depth, args.seed, args.sims)
+    black = _chess_agent(args.black, args.depth, args.seed + 1, args.sims)
     records = []
     for g in range(args.games):
         rec = play_game(white, black, max_plies=args.max_plies, opening_plies=args.opening_plies, rng=random.Random(args.seed + g))
@@ -149,7 +162,7 @@ def cmd_chess_watch(args: argparse.Namespace) -> None:
 def cmd_chess_play(args: argparse.Namespace) -> None:
     import chess
 
-    agent = _chess_agent(args.agent, args.depth, args.seed)
+    agent = _chess_agent(args.agent, args.depth, args.seed, args.sims)
     board = chess.Board()
     human_color = chess.WHITE if args.color == "white" else chess.BLACK
     print(f"You are {args.color}. Enter moves in SAN (e4, Nf3, O-O) or UCI (e2e4). 'quit' to stop.")
@@ -175,6 +188,33 @@ def cmd_chess_play(args: argparse.Namespace) -> None:
         board.push(move)
     print(board)
     print(f"Game over: {board.outcome(claim_draw=True).result()}")
+
+
+def cmd_chess_tournament(args: argparse.Namespace) -> None:
+    from rlgames.benchmark import record_result
+    from rlgames.chess.tournament import run_tournament
+
+    agents = [_chess_agent(spec, args.depth, args.seed + i, args.sims) for i, spec in enumerate(args.agents)]
+    names = [a.name for a in agents]
+    if len(set(names)) != len(names):
+        sys.exit(f"Agent names must be unique, got {names}")
+
+    def progress(m):
+        print(m, f"[{m.seconds:.0f}s]", flush=True)
+        if not args.no_record:
+            record_result({"game": "chess", **m.summary()})
+
+    result = run_tournament(agents, games_per_pair=args.games, max_plies=args.max_plies,
+                            opening_plies=args.opening_plies, seed=args.seed, on_match=progress)
+    table = result.table()
+    print()
+    print(table)
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(f"# Chess tournament\n\n{args.games} games per pair, colours alternating, "
+                       f"{args.opening_plies} random opening plies. Elo is anchored at random = 0.\n\n{table}\n")
+        print(f"\nSaved {out}")
 
 
 # ----------------------------------------------------------------------------- plots
@@ -230,12 +270,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--seed", type=int, default=0)
     s.set_defaults(func=cmd_bench)
 
-    agent_help = "checkpoint / run dir of a trained value net, or a baseline: random, greedy, minimax2, minimax3, stockfish0-20"
+    agent_help = ("checkpoint / run dir of a trained network (TD value net or AlphaZero net), "
+                  "or a baseline: random, greedy, minimax2, minimax3, stockfish0-20")
     s = sub.add_parser("chess-bench", help="play a chess agent against opponents and update the leaderboard")
     s.add_argument("agent", help=agent_help)
     s.add_argument("--opponents", nargs="+", default=["random", "greedy", "minimax2"])
     s.add_argument("--games", type=int, default=20)
-    s.add_argument("--depth", type=int, default=1, help="search depth for value-net agents (1 or 2)")
+    s.add_argument("--depth", type=int, default=1, help="search depth for TD value-net agents (1, 2, 3+)")
+    s.add_argument("--sims", type=int, default=100, help="MCTS simulations per move for AlphaZero agents")
     s.add_argument("--max-plies", type=int, default=300)
     s.add_argument("--opening-plies", type=int, default=4, help="random opening moves so games differ")
     s.add_argument("--save-games", metavar="DIR", help="write an HTML replay of every game to DIR")
@@ -249,6 +291,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("black", help=agent_help)
     s.add_argument("--games", type=int, default=1)
     s.add_argument("--depth", type=int, default=1)
+    s.add_argument("--sims", type=int, default=100)
     s.add_argument("--max-plies", type=int, default=300)
     s.add_argument("--opening-plies", type=int, default=0)
     s.add_argument("--out", help="output .html (default: videos/chess-<white>-vs-<black>.html)")
@@ -256,10 +299,23 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--seed", type=int, default=0)
     s.set_defaults(func=cmd_chess_watch)
 
+    s = sub.add_parser("chess-tournament", help="round-robin between chess agents with Elo ratings")
+    s.add_argument("agents", nargs="+", help=agent_help)
+    s.add_argument("--games", type=int, default=10, help="games per pair")
+    s.add_argument("--depth", type=int, default=1)
+    s.add_argument("--sims", type=int, default=100)
+    s.add_argument("--max-plies", type=int, default=300)
+    s.add_argument("--opening-plies", type=int, default=4)
+    s.add_argument("--out", help="write the cross-table to this markdown file")
+    s.add_argument("--no-record", action="store_true")
+    s.add_argument("--seed", type=int, default=0)
+    s.set_defaults(func=cmd_chess_tournament)
+
     s = sub.add_parser("chess-play", help="play against an agent in the terminal")
     s.add_argument("agent", help=agent_help)
     s.add_argument("--color", choices=["white", "black"], default="white")
     s.add_argument("--depth", type=int, default=2)
+    s.add_argument("--sims", type=int, default=200)
     s.add_argument("--seed", type=int, default=0)
     s.set_defaults(func=cmd_chess_play)
 

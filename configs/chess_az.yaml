@@ -1,0 +1,40 @@
+# Chess, AlphaZero-style: policy + value network trained ONLY from games against itself.
+# Moves in self-play come from MCTS guided by the network; the network learns to predict
+# the search's move choices (policy) and the game results (value). Nothing chess-specific
+# is provided beyond the rules: games that reach max_plies count as draws.
+#
+# Swap the architecture with a model override, e.g.
+#   rlg train configs/chess_az.yaml "model={arch: transformer, layers: 4, dim: 96}"
+# or compare several with scripts/compare_chess_archs.sh.
+#
+# CPU-sized: AlphaZero itself used 800 simulations per move and 44M games on 5,000 TPUs.
+seed: 0
+total_games: 3000
+threads: 1
+model:
+  arch: resnet
+  blocks: 3
+  channels: 64
+algo:
+  name: chess_az
+  simulations: 32          # MCTS simulations per move in self-play
+  c_puct: 1.5
+  dirichlet_alpha: 0.3
+  dirichlet_frac: 0.25
+  temperature_plies: 30    # sample moves from visit counts for the first 30 plies, then play the best
+  max_plies: 160
+  truncation_value: draw   # 'material' adds a hand-made hint; 'draw' is pure self-play
+  parallel_games: 32       # games played simultaneously (their leaves are evaluated in one batch)
+  lr: 0.001
+  weight_decay: 0.0001
+  batch_size: 256
+  buffer_size: 200000
+  games_per_iter: 32       # train after every 32 finished games...
+  train_steps_per_iter: 64 # ...for this many gradient steps
+  min_buffer: 2000
+eval:
+  interval_games: 300
+  games: 20
+  simulations: 64
+  opponents: [random, greedy]
+  max_plies: 300

@@ -1,0 +1,29 @@
+# Chess TD(lambda) learning from pure self-play: the agent only ever plays itself
+# (no baseline opponents) and games hitting max_plies count as draws (no material
+# hint). Compare with configs/chess_td.yaml, which mixes in baseline opponents and
+# scores unfinished games by material, and with the AlphaZero pipeline (chess_az.yaml).
+seed: 0
+total_games: 30000
+threads: 1
+algo:
+  name: chess_td
+  lr: 0.001
+  hidden: [512, 256, 64]
+  batch_size: 512
+  buffer_size: 300000
+  games_per_iter: 16
+  train_steps_per_iter: 64
+  td_lambda: 0.7
+  max_plies: 200
+  truncation_value: draw
+  search_depth: 1
+  temperature_start: 0.3
+  temperature_end: 0.05
+  temperature_decay_fraction: 0.5
+  opening_plies_max: 6
+  opponents: {self: 1.0}
+eval:
+  interval_games: 1000
+  games: 20
+  opponents: [random, greedy, minimax2]
+  max_plies: 300
