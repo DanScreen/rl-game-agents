@@ -85,16 +85,20 @@ class RandomPolicy:
         return int(self.rng.integers(self.n_actions))
 
 
-def load_policy(path: str | Path, **kwargs: Any) -> NetworkPolicy:
-    """Load a policy from a checkpoint file or a run directory (uses its best/latest checkpoint)."""
+def init_checkpoint_path(path: str | Path) -> Path:
+    """A checkpoint file, or a run directory's best.pt (falling back to latest.pt)."""
     path = Path(path)
     if path.is_dir():
         for candidate in ("best.pt", "latest.pt", "model.pt"):
             if (path / candidate).exists():
-                path = path / candidate
-                break
-        else:
-            raise FileNotFoundError(f"No checkpoint found in {path}")
+                return path / candidate
+        raise FileNotFoundError(f"No checkpoint found in {path}")
+    return path
+
+
+def load_policy(path: str | Path, **kwargs: Any) -> NetworkPolicy:
+    """Load a policy from a checkpoint file or a run directory (uses its best/latest checkpoint)."""
+    path = init_checkpoint_path(path)
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
     policy = NetworkPolicy(ckpt, **kwargs)
     policy.name = f"{path.parent.name}/{path.stem}" if path.parent.name else path.stem

@@ -14,6 +14,7 @@ CONFIGS = Path(__file__).resolve().parent.parent / "configs"
 
 
 def _train(tmp_path, config, *overrides):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     main(["train", str(CONFIGS / config), *overrides, "tensorboard=false", "--runs-dir", str(tmp_path)])
     (run_dir,) = [p for p in tmp_path.iterdir() if p.is_dir()]
     return run_dir
@@ -32,6 +33,18 @@ def test_cartpole_train_watch_bench(tmp_path, config, overrides):
     assert stats["episodes"] == 2 and stats["mean_return"] > 0
     video = record_episodes(policy, policy.env, tmp_path / "v.gif", episodes=1, max_steps=50)
     assert (tmp_path / "v.gif").stat().st_size > 0 and len(video) == 1
+    main(["plot", str(run_dir), "--out", str(tmp_path / "curve.png")])
+    assert (tmp_path / "curve.png").exists()
+
+
+def test_init_from_warm_starts_dqn(tmp_path):
+    first = _train(tmp_path / "a", "cartpole_dqn.yaml", "total_steps=600", "algo.learning_starts=500", "eval.interval=600", "eval.episodes=1")
+    second = _train(tmp_path / "b", "cartpole_dqn.yaml", f"init_from={first}", "total_steps=300",
+                    "algo.learning_starts=1000", "eval.interval=300", "eval.episodes=1")
+    import torch
+    a = torch.load(first / "best.pt", weights_only=False)["state_dict"]
+    b = torch.load(second / "latest.pt", weights_only=False)["state_dict"]
+    assert all(torch.equal(a[k], b[k]) for k in a)  # no learning happened, so weights carry over exactly
 
 
 def test_space_invaders_dqn_runs(tmp_path):
@@ -51,6 +64,12 @@ def test_chess_td_train_and_bench(tmp_path):
                      "algo.train_steps_per_iter=2", "algo.max_plies=40", "eval.interval_games=8", "eval.games=2",
                      "eval.opponents=[random]", "eval.max_plies=40")
     assert (run_dir / "best.pt").exists()
+    # stage 2 warm-starts from the stage-1 checkpoint
+    stage2 = tmp_path / "stage2"
+    main(["train", str(CONFIGS / "chess_td_stage2.yaml"), f"init_from={run_dir}", "total_games=4", "algo.games_per_iter=4",
+          "algo.batch_size=64", "algo.train_steps_per_iter=1", "algo.max_plies=30", "eval.games=2",
+          "eval.opponents=[minimax2]", "eval.max_plies=30", "tensorboard=false", "--runs-dir", str(stage2)])
+    assert list(stage2.glob("*/best.pt"))
     out = tmp_path / "games"
     main(["chess-bench", str(run_dir), "--opponents", "random", "--games", "2", "--max-plies", "30",
           "--no-record", "--save-games", str(out)])

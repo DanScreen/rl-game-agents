@@ -17,7 +17,7 @@ import torch
 import torch.nn.functional as F
 
 from rlgames.agents.networks import ActorCritic
-from rlgames.agents.policy import NetworkPolicy, save_checkpoint
+from rlgames.agents.policy import NetworkPolicy, init_checkpoint_path, save_checkpoint
 from rlgames.envs import make_vector_env
 from rlgames.evaluate import run_episodes
 from rlgames.logger import Logger, cpu_state_dict, resolve_device
@@ -59,6 +59,9 @@ def train(cfg: dict[str, Any], run_dir: Path) -> dict[str, Any]:
     n_actions = int(envs.single_action_space.n)
     net_kwargs = {"hidden": list(hp["hidden"])}
     net = ActorCritic(obs_shape, n_actions, **net_kwargs).to(device)
+    if cfg.get("init_from"):  # continue from an earlier run's checkpoint
+        net.load_state_dict(torch.load(init_checkpoint_path(cfg["init_from"]), map_location=device, weights_only=False)["state_dict"])
+        print(f"Initialised from {cfg['init_from']}", flush=True)
     opt = torch.optim.Adam(net.parameters(), lr=hp["lr"], eps=1e-5)
     logger = Logger(run_dir, use_tensorboard=cfg.get("tensorboard", True))
 

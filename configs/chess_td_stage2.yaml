@@ -1,0 +1,31 @@
+# Chess stage 2: continue training the stage-1 network (configs/chess_td.yaml)
+# against tougher opponents, including the 2-ply minimax baseline, with less
+# exploration and a lower learning rate.
+#   rlg train configs/chess_td_stage2.yaml init_from=runs/chess_td-<timestamp>/best.pt
+seed: 1
+init_from: pretrained/chess_td.pt
+total_games: 20000
+threads: 1
+algo:
+  name: chess_td
+  lr: 0.0003
+  hidden: [512, 256, 64]
+  batch_size: 512
+  buffer_size: 300000
+  games_per_iter: 16
+  train_steps_per_iter: 64
+  td_lambda: 0.7
+  max_plies: 200
+  truncation_value: material
+  material_scale: 5.0
+  search_depth: 1
+  temperature_start: 0.1
+  temperature_end: 0.02
+  temperature_decay_fraction: 0.5
+  opening_plies_max: 6
+  opponents: {self: 0.4, random: 0.1, greedy: 0.2, minimax2: 0.3}
+eval:
+  interval_games: 1000
+  games: 20
+  opponents: [random, greedy, minimax2]
+  max_plies: 300

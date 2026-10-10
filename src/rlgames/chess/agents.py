@@ -126,6 +126,8 @@ class ValueNetAgent:
 
     depth=1: score(m) = -V(child)            (child is from the opponent's view)
     depth=2: score(m) = min over replies r of V(grandchild)   (opponent minimises our value)
+    depth>=3: negamax alpha-beta with the value net at the leaves (captures searched
+              first; the children of each last-ply node are evaluated in one batch)
 
     ``temperature > 0`` samples moves from softmax(score / T) (used for exploration in
     training); ``temperature == 0`` plays the best move with random tie-breaking.
@@ -184,7 +186,52 @@ class ValueNetAgent:
                 scores[i] = min(vals)  # a non-terminal position always has a legal reply
         return moves, scores
 
+    def _one_ply_value(self, board: chess.Board) -> float:
+        """Negamax value of ``board`` searched one ply deep (children batched)."""
+        best, children = -np.inf, []
+        for move in board.legal_moves:
+            board.push(move)
+            tv = terminal_value(board)
+            if tv is None:
+                children.append(board.copy(stack=False))
+            else:
+                best = max(best, -tv)
+            board.pop()
+        if children:
+            best = max(best, float(-self.net.evaluate(children).min()))
+        return best
+
+    def _alphabeta(self, board: chess.Board, depth: int, alpha: float, beta: float) -> float:
+        tv = terminal_value(board)
+        if tv is not None:
+            return tv
+        if depth == 1:
+            return self._one_ply_value(board)
+        value = -np.inf
+        for move in sorted(board.legal_moves, key=lambda m: not board.is_capture(m)):
+            board.push(move)
+            value = max(value, -self._alphabeta(board, depth - 1, -beta, -alpha))
+            board.pop()
+            alpha = max(alpha, value)
+            if alpha >= beta:
+                break
+        return value
+
+    def _alphabeta_root(self, board: chess.Board) -> chess.Move:
+        moves, prior = ValueNetAgent(self.net, depth=1).move_scores(board)
+        order = np.argsort(-(prior + self.rng.uniform(0, 1e-4, len(moves))))  # best-first, random ties
+        best_move, alpha = moves[int(order[0])], -np.inf
+        for i in order:
+            board.push(moves[i])
+            score = -self._alphabeta(board, self.depth - 1, -np.inf, -alpha)
+            board.pop()
+            if score > alpha:
+                alpha, best_move = score, moves[i]
+        return best_move
+
     def select_move(self, board: chess.Board) -> chess.Move:
+        if self.depth >= 3 and self.temperature == 0:
+            return self._alphabeta_root(board)
         moves, scores = self.move_scores(board)
         if self.temperature > 0:
             logits = (scores - scores.max()) / self.temperature

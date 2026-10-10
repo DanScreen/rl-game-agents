@@ -14,7 +14,7 @@ import torch
 import torch.nn.functional as F
 
 from rlgames.agents.networks import QNetwork
-from rlgames.agents.policy import NetworkPolicy, save_checkpoint
+from rlgames.agents.policy import NetworkPolicy, init_checkpoint_path, save_checkpoint
 from rlgames.envs import make_vector_env
 from rlgames.evaluate import run_episodes
 from rlgames.logger import Logger, cpu_state_dict, resolve_device
@@ -109,6 +109,10 @@ def train(cfg: dict[str, Any], run_dir: Path) -> dict[str, Any]:
     q = QNetwork(obs_shape, n_actions, **net_kwargs).to(device)
     q_target = QNetwork(obs_shape, n_actions, **net_kwargs).to(device)
     q_target.load_state_dict(q.state_dict())
+    if cfg.get("init_from"):  # continue from an earlier run's checkpoint
+        q.load_state_dict(torch.load(init_checkpoint_path(cfg["init_from"]), map_location=device, weights_only=False)["state_dict"])
+        print(f"Initialised from {cfg['init_from']}", flush=True)
+        q_target.load_state_dict(q.state_dict())
     opt = torch.optim.Adam(q.parameters(), lr=hp["lr"], eps=1.5e-4 if len(obs_shape) == 3 else 1e-8)
     buffer = ReplayBuffer(int(hp["buffer_size"]), obs_shape, envs.single_observation_space.dtype)
     logger = Logger(run_dir, use_tensorboard=cfg.get("tensorboard", True))

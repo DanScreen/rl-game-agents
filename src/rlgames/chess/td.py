@@ -33,7 +33,7 @@ import torch.nn.functional as F
 from rlgames.chess.agents import ValueNetAgent, make_baseline
 from rlgames.chess.arena import play_match
 from rlgames.chess.encoding import NUM_FEATURES, encode_boards, material_balance, terminal_value
-from rlgames.chess.model import ValueNet, save_value_net
+from rlgames.chess.model import ValueNet, load_value_net, save_value_net
 from rlgames.logger import Logger
 
 DEFAULTS: dict[str, Any] = {
@@ -117,6 +117,10 @@ def train(cfg: dict[str, Any], run_dir: Path) -> dict[str, Any]:
     rng = random.Random(seed)
     np_rng = np.random.default_rng(seed)
     net = ValueNet(hp["hidden"])
+    if cfg.get("init_from"):  # continue from an earlier run's checkpoint
+        init_net, _ = load_value_net(cfg["init_from"])
+        net.load_state_dict(init_net.state_dict())
+        print(f"Initialised from {cfg['init_from']}", flush=True)
     opt = torch.optim.AdamW(net.parameters(), lr=hp["lr"], weight_decay=hp["weight_decay"])
     buffer = PositionBuffer(int(hp["buffer_size"]))
     logger = Logger(run_dir, use_tensorboard=cfg.get("tensorboard", True))

@@ -176,6 +176,18 @@ def cmd_chess_play(args: argparse.Namespace) -> None:
     print(f"Game over: {board.outcome(claim_draw=True).result()}")
 
 
+# ----------------------------------------------------------------------------- plots
+def cmd_plot(args: argparse.Namespace) -> None:
+    from rlgames.plot import plot_runs
+
+    runs = [Path(r) for r in args.runs]
+    missing = [str(r) for r in runs if not (r / "metrics.csv").exists()]
+    if missing:
+        sys.exit(f"No metrics.csv in: {', '.join(missing)}")
+    out = plot_runs(runs, Path(args.out), args.metric, args.title)
+    print(f"Saved plot: {out}")
+
+
 # ----------------------------------------------------------------------------- leaderboard
 def cmd_leaderboard(args: argparse.Namespace) -> None:
     from rlgames.benchmark import LEADERBOARD, write_leaderboard
@@ -248,6 +260,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--depth", type=int, default=2)
     s.add_argument("--seed", type=int, default=0)
     s.set_defaults(func=cmd_chess_play)
+
+    s = sub.add_parser("plot", help="plot learning curves of one or more runs to a PNG")
+    s.add_argument("runs", nargs="+", help="run directories")
+    s.add_argument("--metric", "-m", action="append",
+                   help="metric column(s) from metrics.csv, repeatable (default: eval/mean_return or eval/mean_score)")
+    s.add_argument("--out", default="videos/learning_curves.png")
+    s.add_argument("--title")
+    s.set_defaults(func=cmd_plot)
 
     s = sub.add_parser("leaderboard", help="regenerate and print benchmarks/LEADERBOARD.md")
     s.set_defaults(func=cmd_leaderboard)
