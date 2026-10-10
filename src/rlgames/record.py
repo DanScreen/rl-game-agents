@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -13,12 +14,13 @@ from rlgames.envs import is_atari, make_env
 
 
 def _annotate(frame: np.ndarray, text: str, scale: int) -> np.ndarray:
-    img = Image.fromarray(frame)
+    game = Image.fromarray(frame)
     if scale != 1:
-        img = img.resize((img.width * scale, img.height * scale), Image.NEAREST)
+        game = game.resize((game.width * scale, game.height * scale), Image.NEAREST)
+    img = Image.new("RGB", (game.width, game.height + 16), (0, 0, 0))  # caption strip above the game
+    img.paste(game, (0, 16))
     draw = ImageDraw.Draw(img)
-    draw.rectangle([0, 0, img.width, 14], fill=(0, 0, 0))
-    draw.text((4, 1), text, fill=(255, 255, 255))
+    draw.text((4, 2), text, fill=(255, 255, 255))
     out = np.asarray(img)
     # libx264 wants even dimensions
     h, w = out.shape[:2]
@@ -38,6 +40,7 @@ def record_episodes(
     """Play ``episodes`` games and write them to one video. Returns the episode scores."""
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")  # off-screen rendering needs no display
     env = make_env(env_name, render_mode="rgb_array", **(env_kwargs or {}))
     scale = 2 if is_atari(env_name) else 1
     fps = fps or (30 if is_atari(env_name) else 50)

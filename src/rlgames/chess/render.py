@@ -64,10 +64,10 @@ def _font(size: int):
     return None
 
 
-def board_image(board: chess.Board, square: int = 48, caption: str = "") -> Image.Image:
+def board_image(board: chess.Board, square: int = 48, caption: str = "", subcaption: str = "") -> Image.Image:
     font = _font(int(square * 0.8))
-    small = _font(14) or ImageFont.load_default()
-    pad = 22
+    small = _font(13) or ImageFont.load_default()
+    pad = 40
     img = Image.new("RGB", (8 * square, 8 * square + pad), (30, 30, 30))
     draw = ImageDraw.Draw(img)
     last = board.peek() if board.move_stack else None
@@ -83,10 +83,14 @@ def board_image(board: chess.Board, square: int = 48, caption: str = "") -> Imag
         if piece:
             sym = piece.symbol()
             if font is not None:
-                draw.text((x + square / 2, y + square / 2), _GLYPHS[sym], font=font, fill=(0, 0, 0), anchor="mm")
+                centre = (x + square / 2, y + square / 2)
+                if piece.color == chess.WHITE:  # white body under a black outline
+                    draw.text(centre, _GLYPHS[sym.lower()], font=font, fill=(255, 255, 255), anchor="mm")
+                draw.text(centre, _GLYPHS[sym], font=font, fill=(0, 0, 0), anchor="mm")
             else:  # no glyph font available: draw letters
                 draw.text((x + square / 2 - 4, y + square / 2 - 6), sym, fill=(0, 0, 0) if sym.islower() else (255, 255, 255))
-    draw.text((6, 8 * square + 4), caption, fill=(230, 230, 230), font=small)
+    draw.text((6, 8 * square + 3), caption, fill=(230, 230, 230), font=small)
+    draw.text((6, 8 * square + 21), subcaption, fill=(230, 230, 230), font=small)
     return img
 
 
@@ -97,8 +101,9 @@ def write_gif(record: GameRecord, out_path: str | Path, ms_per_move: int = 500) 
     frames = []
     for i, (b, san) in enumerate(zip(boards, sans)):
         move_no = f"{(i + 1) // 2}{'.' if i % 2 else '...'} {san}" if i else "start"
-        frames.append(board_image(b, caption=f"{record.white} vs {record.black}  {move_no}"))
-    frames.append(board_image(boards[-1], caption=f"{record.result}  ({record.reason})"))
+        frames.append(board_image(b, caption=f"{record.white} (W) vs {record.black} (B)", subcaption=move_no))
+    frames.append(board_image(boards[-1], caption=f"{record.white} (W) vs {record.black} (B)",
+                              subcaption=f"{record.result}  ({record.reason})"))
     durations = [ms_per_move] * (len(frames) - 1) + [3000]
     frames[0].save(out_path, save_all=True, append_images=frames[1:], duration=durations, loop=0)
     return out_path
