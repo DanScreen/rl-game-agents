@@ -1,0 +1,26 @@
+# Space Invaders with PPO (Nature-CNN actor-critic, 8 parallel games).
+# CleanRL-style Atari hyperparameters. Random play scores ~150.
+# 2.5M steps takes ~4h on a 4-core CPU (much faster on a GPU); the PPO paper used 10M.
+env: space_invaders
+seed: 0
+total_steps: 2500000
+num_envs: 8
+async_envs: true
+threads: 2
+algo:
+  name: ppo
+  lr: 0.00025
+  num_steps: 128
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 4
+  update_epochs: 4
+  clip_coef: 0.1
+  ent_coef: 0.01
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  clip_rewards: true
+eval:
+  interval: 250000
+  episodes: 10            # 5 proved too noisy to pick best.pt reliably
+  deterministic: false
