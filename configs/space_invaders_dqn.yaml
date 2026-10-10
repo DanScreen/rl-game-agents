@@ -1,0 +1,30 @@
+# Space Invaders with Double DQN + dueling head (Nature-CNN torso).
+# Standard Atari setup: 84x84 grayscale, 4-frame stack, frame skip 4, sticky actions,
+# rewards clipped to {-1, 0, 1} for learning (scores reported are raw game scores).
+# Random play scores ~150. 1M steps takes ~5h on a 4-core CPU (much faster on a GPU);
+# for stronger agents raise total_steps (the DQN paper used 50M).
+env: space_invaders
+seed: 0
+total_steps: 1000000
+num_envs: 4
+threads: 1
+log_interval: 10000
+algo:
+  name: dqn
+  lr: 0.0001
+  gamma: 0.99
+  buffer_size: 100000          # ~3.5 GB of RAM; lower it if memory is tight
+  batch_size: 32
+  learning_starts: 20000
+  train_freq: 4
+  target_update_interval: 8000
+  eps_start: 1.0
+  eps_end: 0.01
+  eps_fraction: 0.1
+  double: true
+  dueling: true
+  clip_rewards: true
+eval:
+  interval: 100000
+  episodes: 5
+  epsilon: 0.01

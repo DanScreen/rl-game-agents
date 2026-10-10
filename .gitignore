@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project outputs (pretrained checkpoints we want to share live in pretrained/)
+runs/
+videos/
