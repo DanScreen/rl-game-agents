@@ -31,7 +31,7 @@ import torch
 import torch.nn.functional as F
 
 from rlgames.chess.agents import ValueNetAgent, make_baseline
-from rlgames.chess.arena import play_match
+from rlgames.chess.arena import play_match, play_random_opening
 from rlgames.chess.encoding import NUM_FEATURES, encode_boards, material_balance, terminal_value
 from rlgames.chess.model import ValueNet, load_value_net, save_value_net
 from rlgames.logger import Logger
@@ -87,8 +87,7 @@ def lambda_returns(values: np.ndarray, final_value: float, lam: float) -> np.nda
 
 def play_training_game(learner: ValueNetAgent, opponent, learner_white: bool, hp: dict[str, Any], rng: random.Random):
     board = chess.Board()
-    for _ in range(rng.randint(0, hp["opening_plies_max"])):
-        board.push(rng.choice(list(board.legal_moves)))
+    play_random_opening(board, rng.randint(0, hp["opening_plies_max"]), rng)
     positions = []
     while True:
         tv = terminal_value(board, claim_draw=True)

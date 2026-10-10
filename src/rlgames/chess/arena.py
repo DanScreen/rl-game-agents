@@ -32,14 +32,19 @@ class GameRecord:
         return str(game)
 
 
+def play_random_opening(board: chess.Board, plies: int, rng: random.Random) -> None:
+    """Push up to ``plies`` random moves, stopping early if the game ends (e.g. fool's mate)."""
+    for _ in range(plies):
+        if board.is_game_over():
+            return
+        board.push(rng.choice(list(board.legal_moves)))
+
+
 def play_game(white, black, max_plies: int = 300, opening_plies: int = 0, rng: random.Random | None = None) -> GameRecord:
     """``opening_plies`` random moves are played first so repeated games differ."""
     rng = rng or random.Random()
     board = chess.Board()
-    for _ in range(opening_plies):
-        if board.is_game_over():
-            break
-        board.push(rng.choice(list(board.legal_moves)))
+    play_random_opening(board, opening_plies, rng)
     while True:
         outcome = board.outcome(claim_draw=True)
         if outcome is not None:

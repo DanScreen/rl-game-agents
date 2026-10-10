@@ -1,13 +1,15 @@
+import random
+
 import chess
 import numpy as np
 import pytest
 import torch
 
 from rlgames.chess.agents import GreedyMaterialAgent, MinimaxAgent, RandomAgent, ValueNetAgent, make_baseline
-from rlgames.chess.arena import elo_diff, play_game, play_match
+from rlgames.chess.arena import elo_diff, play_game, play_match, play_random_opening
 from rlgames.chess.encoding import NUM_FEATURES, encode_board, material_balance, terminal_value
 from rlgames.chess.model import ValueNet
-from rlgames.chess.td import lambda_returns
+from rlgames.chess.td import lambda_returns, play_training_game
 
 # White to move, Qxf7# is mate in one (scholar's mate pattern).
 MATE_IN_ONE = "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4"
@@ -84,3 +86,31 @@ def test_value_net_output_range():
     net = ValueNet()
     out = net(torch.randn(5, NUM_FEATURES))
     assert out.shape == (5,) and (out.abs() <= 1).all()
+
+
+class _FoolsMateRng(random.Random):
+    """Plays 1.f3 e5 2.g4 Qh4# as the 'random' opening, then behaves normally."""
+
+    def __init__(self, seed=0):
+        super().__init__(seed)
+        self.script = ["f2f3", "e7e5", "g2g4", "d8h4"]
+
+    def choice(self, seq):
+        if self.script:
+            uci = self.script.pop(0)
+            return next(m for m in seq if m.uci() == uci)
+        return super().choice(seq)
+
+
+def test_random_opening_stops_when_game_ends():
+    board = chess.Board()
+    play_random_opening(board, 6, _FoolsMateRng(0))
+    assert board.is_checkmate() and board.ply() == 4
+
+
+def test_training_game_survives_opening_that_ends_the_game():
+    rng = _FoolsMateRng(0)
+    rng.randint = lambda a, b: 6  # ask for 6 opening plies; mate arrives after 4
+    hp = {"opening_plies_max": 6, "max_plies": 50}
+    positions, board, value, how = play_training_game(ValueNetAgent(ValueNet()), None, True, hp, rng)
+    assert how == "terminal" and value == -1.0 and positions == []
