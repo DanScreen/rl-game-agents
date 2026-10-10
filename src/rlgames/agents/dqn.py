@@ -38,6 +38,7 @@ DEFAULTS: dict[str, Any] = {
     "clip_rewards": False,
     "max_grad_norm": 10.0,
     "loss": "huber",
+    "anneal_lr": False,  # linearly decay the learning rate to 0 over training (stabilises the final policy)
 }
 
 
@@ -160,6 +161,8 @@ def train(cfg: dict[str, Any], run_dir: Path) -> dict[str, Any]:
         step += num_envs
 
         if step >= hp["learning_starts"]:
+            if hp["anneal_lr"]:
+                opt.param_groups[0]["lr"] = hp["lr"] * max(0.0, 1.0 - step / total_steps)
             grad_debt += num_envs / hp["train_freq"]
             for _ in range(int(grad_debt) * int(hp["gradient_steps"])):
                 b_obs, b_act, b_rew, b_next, b_done = (t.to(device) for t in buffer.sample(hp["batch_size"], rng))

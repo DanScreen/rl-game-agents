@@ -68,3 +68,13 @@ def test_leaderboard_written(tmp_path):
                    "losses": 0, "score": 1.0, "elo_diff": 400.0}, results, board)
     text = board.read_text()
     assert "## CartPole-v1" in text and "## chess" in text and "| x | random |" in text
+
+
+def test_cli_accepts_overrides_after_options():
+    from rlgames.cli import build_parser, main
+
+    parser = build_parser()
+    args, extra = parser.parse_known_args(["train", "c.yaml", "a=1", "--name", "x", "b=2"])
+    assert args.overrides == ["a=1"] and extra == ["b=2"]
+    with pytest.raises(SystemExit):
+        main(["bench", "x.pt", "--bogus"])

@@ -255,7 +255,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args, extra = parser.parse_known_args(argv)
+    if extra:
+        # allow `rlg train cfg.yaml --name x lr=1` (overrides after options)
+        if args.command == "train" and all("=" in e and not e.startswith("-") for e in extra):
+            args.overrides = [*args.overrides, *extra]
+        else:
+            parser.error(f"unrecognized arguments: {' '.join(extra)}")
     args.func(args)
 
 
